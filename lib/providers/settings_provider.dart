@@ -3,7 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsProvider extends ChangeNotifier {
   static const String _apiUrlKey = 'api_url';
-  static const String _defaultUrl = 'https://YOUR-BACKEND-URL.onrender.com/process';
+  
+  // Pointing to your new high-powered Hugging Face server!
+  static const String _defaultUrl = 'https://elguduwis-dub-app-backend.hf.space/process';
   
   String _apiUrl = _defaultUrl;
   String get apiUrl => _apiUrl;
