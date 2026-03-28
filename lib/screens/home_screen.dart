@@ -115,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
                   children: [
-                    Icon(Icons.media, size: 64, color: Colors.blue),
+                    Icon(Icons.video_library, size: 64, color: Colors.blue),
                     SizedBox(height: 16),
                     Text(
                       'Extract Speech from Any Video or Audio',
