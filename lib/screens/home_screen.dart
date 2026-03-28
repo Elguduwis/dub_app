@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -22,8 +23,8 @@ class _HomeScreenState extends State<HomeScreen> {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: [
-        'mp4', 'mov', 'avi', 'mkv', 'webm', // Video formats
-        'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac' // Audio formats
+        'mp4', 'mov', 'avi', 'mkv', 'webm', 
+        'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'
       ],
       allowMultiple: false,
     );
@@ -86,13 +87,32 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       setState(() {
-        _error = 'Connection error: $e\n\nPlease check your API URL in Settings';
+        _error = 'Connection error: $e\n\nPlease check your internet and API URL';
       });
     } finally {
       setState(() {
         _isUploading = false;
       });
     }
+  }
+
+  void _copyToClipboard() {
+    if (_segments.isEmpty) return;
+    
+    StringBuffer buffer = StringBuffer();
+    for (int i = 0; i < _segments.length; i++) {
+      final seg = _segments[i];
+      buffer.writeln('${i + 1}. [${seg.start.toStringAsFixed(1)}s - ${seg.end.toStringAsFixed(1)}s]: ${seg.text}');
+    }
+    
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Transcription copied to clipboard!'),
+        backgroundColor: Colors.blue,
+      ),
+    );
   }
 
   @override
@@ -215,12 +235,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
             if (_segments.isNotEmpty) ...[
               SizedBox(height: 16),
-              Text(
-                'Transcription Results',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Transcription Results',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _copyToClipboard,
+                    icon: Icon(Icons.copy, size: 18),
+                    label: Text('Copy All'),
+                  ),
+                ],
               ),
               SizedBox(height: 8),
               Expanded(
