@@ -20,7 +20,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pickFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.media,
+      type: FileType.custom,
+      allowedExtensions: [
+        'mp4', 'mov', 'avi', 'mkv', 'webm', // Video formats
+        'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac' // Audio formats
+      ],
       allowMultiple: false,
     );
     if (result != null) {
