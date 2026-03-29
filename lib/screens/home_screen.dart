@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import '../providers/settings_provider.dart';
 import '../models/transcription.dart';
 
@@ -16,102 +19,119 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   File? _selectedFile;
   bool _isUploading = false;
+  String _statusText = 'Upload & Extract Speech';
   List<TranscriptionSegment> _segments = [];
   String? _error;
 
   Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        'mp4', 'mov', 'avi', 'mkv', 'webm', 
-        'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'
-      ],
-      allowMultiple: false,
-    );
-    if (result != null) {
+    try {
+      // Use FileType.any to bypass Android's strict MIME type bugs
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+      );
+      
+      if (result != null && result.files.single.path != null) {
+        String path = result.files.single.path!;
+        String ext = path.split('.').last.toLowerCase();
+        
+        // Validate the file type ourselves
+        List<String> allowed = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'];
+        
+        if (allowed.contains(ext)) {
+          setState(() {
+            _selectedFile = File(path);
+            _segments = [];
+            _error = null;
+          });
+        } else {
+          setState(() {
+            _error = 'Invalid file type ($ext). Please select a standard audio or video file.';
+          });
+        }
+      }
+    } catch (e) {
       setState(() {
-        _selectedFile = File(result.files.single.path!);
-        _segments = [];
-        _error = null;
+        _error = 'Could not open file picker: $e';
       });
     }
   }
 
-  Future<void> _uploadFile() async {
+  Future<void> _processFile() async {
     if (_selectedFile == null) return;
+    
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    if (settings.apiKey.isEmpty) {
+      setState(() => _error = 'Please enter your API Key in Settings first!');
+      return;
+    }
 
     setState(() {
       _isUploading = true;
       _error = null;
+      _statusText = 'Compressing audio...';
     });
 
     try {
-      final settings = Provider.of<SettingsProvider>(context, listen: false);
-      final url = settings.apiUrl;
+      final tempDir = await getTemporaryDirectory();
+      final outputPath = '${tempDir.path}/compressed_audio.mp3';
+      
+      // FFmpeg: Extract audio, convert to mono, 16kHz, low bitrate (Tiny file size for API limits)
+      final session = await FFmpegKit.execute('-y -i "${_selectedFile!.path}" -vn -ar 16000 -ac 1 -b:a 32k "$outputPath"');
+      final returnCode = await session.getReturnCode();
+      
+      if (!ReturnCode.isSuccess(returnCode)) {
+        throw Exception("Failed to extract audio. Ensure file is a valid media file.");
+      }
 
-      var request = http.MultipartRequest('POST', Uri.parse(url));
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        _selectedFile!.path,
-      ));
+      setState(() => _statusText = 'Sending to Fast AI...');
+
+      var request = http.MultipartRequest('POST', Uri.parse(settings.apiUrl));
+      request.headers['Authorization'] = 'Bearer ${settings.apiKey}';
+      request.fields['model'] = 'whisper-large-v3'; 
+      request.fields['response_format'] = 'verbose_json'; 
+      request.files.add(await http.MultipartFile.fromPath('file', outputPath));
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
+      final Map<String, dynamic> data = json.decode(response.body);
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> data = json.decode(response.body);
-        
-        if (data['success'] == true) {
+        if (data.containsKey('segments')) {
           List<dynamic> segmentsJson = data['segments'];
           setState(() {
-            _segments = segmentsJson
-                .map((seg) => TranscriptionSegment.fromJson(seg))
-                .toList();
+            _segments = segmentsJson.map((seg) => TranscriptionSegment.fromJson(seg)).toList();
           });
           
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Success! Found ${_segments.length} speech segments'),
-              backgroundColor: Colors.green,
-            ),
+            SnackBar(content: Text('Transcription Complete!'), backgroundColor: Colors.green),
           );
         } else {
-          setState(() {
-            _error = data['error'] ?? 'Processing failed';
-          });
+          throw Exception("API did not return segments.");
         }
       } else {
-        setState(() {
-          _error = 'Server error: ${response.statusCode}';
-        });
+        throw Exception(data['error']?['message'] ?? 'API Error: ${response.statusCode}');
       }
     } catch (e) {
-      setState(() {
-        _error = 'Connection error: $e\n\nPlease check your internet and API URL';
-      });
+      setState(() => _error = e.toString());
     } finally {
       setState(() {
         _isUploading = false;
+        _statusText = 'Upload & Extract Speech';
       });
     }
   }
 
   void _copyToClipboard() {
     if (_segments.isEmpty) return;
-    
     StringBuffer buffer = StringBuffer();
     for (int i = 0; i < _segments.length; i++) {
       final seg = _segments[i];
       buffer.writeln('${i + 1}. [${seg.start.toStringAsFixed(1)}s - ${seg.end.toStringAsFixed(1)}s]: ${seg.text}');
     }
-    
     Clipboard.setData(ClipboardData(text: buffer.toString()));
-    
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Transcription copied to clipboard!'),
-        backgroundColor: Colors.blue,
-      ),
+      SnackBar(content: Text('Transcription copied!'), backgroundColor: Colors.blue),
     );
   }
 
@@ -122,10 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text('Dub App'),
         elevation: 0,
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings),
-            onPressed: () => Navigator.pushNamed(context, '/settings'),
-          ),
+          IconButton(icon: Icon(Icons.settings), onPressed: () => Navigator.pushNamed(context, '/settings')),
         ],
       ),
       body: Padding(
@@ -141,69 +158,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Icon(Icons.video_library, size: 64, color: Colors.blue),
                     SizedBox(height: 16),
-                    Text(
-                      'Extract Speech from Any Video or Audio',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                    Text('Fast AI Transcription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                     SizedBox(height: 24),
                     ElevatedButton.icon(
                       onPressed: _pickFile,
                       icon: Icon(Icons.folder_open),
                       label: Text('Select File'),
-                      style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
                     ),
                     if (_selectedFile != null) ...[
                       SizedBox(height: 12),
-                      Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          _selectedFile!.path.split('/').last,
-                          style: TextStyle(fontSize: 12),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                      Text(_selectedFile!.path.split('/').last, maxLines: 2, overflow: TextOverflow.ellipsis),
                     ],
                     SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _isUploading || _selectedFile == null
-                            ? null
-                            : _uploadFile,
-                        style: ElevatedButton.styleFrom(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                        ),
+                        onPressed: _isUploading || _selectedFile == null ? null : _processFile,
+                        style: ElevatedButton.styleFrom(padding: EdgeInsets.symmetric(vertical: 12)),
                         child: _isUploading
                             ? Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  ),
+                                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
                                   SizedBox(width: 12),
-                                  Text('Processing...'),
+                                  Text(_statusText),
                                 ],
                               )
-                            : Text('Upload & Extract Speech'),
+                            : Text(_statusText),
                       ),
                     ),
                   ],
@@ -212,47 +193,17 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             if (_error != null) ...[
               SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, color: Colors.red),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: TextStyle(color: Colors.red.shade900),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              Text(_error!, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             ],
             if (_segments.isNotEmpty) ...[
               SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Transcription Results',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _copyToClipboard,
-                    icon: Icon(Icons.copy, size: 18),
-                    label: Text('Copy All'),
-                  ),
+                  Text('Results', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  TextButton.icon(onPressed: _copyToClipboard, icon: Icon(Icons.copy, size: 18), label: Text('Copy All')),
                 ],
               ),
-              SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
                   itemCount: _segments.length,
@@ -261,18 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     return Card(
                       margin: EdgeInsets.only(bottom: 8),
                       child: ListTile(
-                        leading: CircleAvatar(
-                          child: Text('${index + 1}'),
-                          backgroundColor: Colors.blue.shade100,
-                        ),
+                        leading: CircleAvatar(child: Text('${index + 1}')),
                         title: Text(seg.text),
-                        subtitle: Text(
-                          '${seg.start.toStringAsFixed(1)}s - ${seg.end.toStringAsFixed(1)}s',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                          ),
-                        ),
+                        subtitle: Text('${seg.start.toStringAsFixed(1)}s - ${seg.end.toStringAsFixed(1)}s'),
                       ),
                     );
                   },
