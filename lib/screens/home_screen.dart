@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,30 +25,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pickFile() async {
     try {
-      // Use FileType.any to bypass Android's strict MIME type bugs
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
+      // Using Google's official file_selector package
+      final XFile? file = await openFile(
+        acceptedTypeGroups: <XTypeGroup>[
+          XTypeGroup(
+            label: 'Media Files',
+            extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'],
+          ),
+        ],
       );
       
-      if (result != null && result.files.single.path != null) {
-        String path = result.files.single.path!;
-        String ext = path.split('.').last.toLowerCase();
-        
-        // Validate the file type ourselves
-        List<String> allowed = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'];
-        
-        if (allowed.contains(ext)) {
-          setState(() {
-            _selectedFile = File(path);
-            _segments = [];
-            _error = null;
-          });
-        } else {
-          setState(() {
-            _error = 'Invalid file type ($ext). Please select a standard audio or video file.';
-          });
-        }
+      if (file != null) {
+        setState(() {
+          _selectedFile = File(file.path);
+          _segments = [];
+          _error = null;
+        });
       }
     } catch (e) {
       setState(() {
@@ -76,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final tempDir = await getTemporaryDirectory();
       final outputPath = '${tempDir.path}/compressed_audio.mp3';
       
-      // FFmpeg: Extract audio, convert to mono, 16kHz, low bitrate (Tiny file size for API limits)
+      // FFmpeg: Extract audio, convert to mono, 16kHz, low bitrate
       final session = await FFmpegKit.execute('-y -i "${_selectedFile!.path}" -vn -ar 16000 -ac 1 -b:a 32k "$outputPath"');
       final returnCode = await session.getReturnCode();
       
