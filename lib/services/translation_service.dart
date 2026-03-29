@@ -16,14 +16,14 @@ class TranslationService {
         'messages': [
           {
             'role': 'system',
-            'content': 'You are a professional linguist and localization expert. Translate the following English text into pure, idiomatic Hausa. Do NOT do a literal word-for-word translation. Ensure the grammar, tone, and vocabulary sound entirely natural to a native Hausa speaker. Only return the translated text, nothing else.'
+            'content': 'You are an expert linguist and localization professional. Translate the following English text into pure, highly professional, and idiomatic Hausa. Do NOT perform a literal, word-for-word translation. Ensure the syntax, vocabulary, and cultural context sound perfectly natural to a native Hausa speaker. Return ONLY the translated Hausa text with no additional commentary.'
           },
           {
             'role': 'user',
             'content': englishText
           }
         ],
-        'temperature': 0.3, // Low temperature for focused, accurate translation
+        'temperature': 0.2,
       }),
     );
 
@@ -31,7 +31,7 @@ class TranslationService {
       final data = jsonDecode(response.body);
       return data['choices'][0]['message']['content'].trim();
     } else {
-      throw Exception('Failed to translate: ${response.body}');
+      throw Exception('Translation API Error: ${response.statusCode}');
     }
   }
 }
