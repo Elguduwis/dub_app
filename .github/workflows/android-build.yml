@@ -7,30 +7,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           
-      - name: Scaffold Flutter Android Platform
-        run: flutter create --platforms=android .
-      
-      - name: Get Dependencies
-        run: flutter pub get
-        
-      - name: Inject Android Permissions & FFmpeg Mirror
+      - name: Nuke and Rebuild Platform
         run: |
-          sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/g' android/app/build.gradle.kts || true
-          sed -i '/mavenCentral()/a \        maven { url "https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main" }' android/build.gradle || true
-          sed -i '/mavenCentral()/a \        maven("https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main")' android/build.gradle.kts || true
+          # Remove existing android folder to prevent plugin registry conflicts
+          rm -rf android
+          flutter clean
+          flutter create --platforms=android .
+          # CRITICAL: Run pub get AFTER creation so Flutter registers the plugins into the new Android folder
+          flutter pub get
           
-      - name: Build APK (NO SHRINK TO FIX MISSING PLUGINS)
-        run: flutter build apk --release --no-shrink
+      - name: Inject Android Configurations
+        run: |
+          # Inject permissions directly above the <application> tag for safety
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
+          
+          # Update minSdk to 24 in Kotlin DSL (Flutter 3.19+ default)
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/g' android/app/build.gradle.kts || true
+          # Fallback for Groovy
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/g' android/app/build.gradle || true
+          
+          # Inject FFmpeg Kit Maven repo into settings.gradle.kts (where modern Flutter puts repos)
+          sed -i '/mavenCentral()/a \        maven("https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main")' android/settings.gradle.kts || true
+          # Fallback for older Groovy settings
+          sed -i '/mavenCentral()/a \        maven { url "https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main" }' android/settings.gradle || true
+          
+      - name: Inject Proguard Rules (Fix for MissingPluginException)
+        run: |
+          # Create Proguard rules to protect our specific plugins from being stripped
+          cat << 'PROGUARD' > android/app/proguard-rules.pro
+          -keep class io.flutter.plugins.** { *; }
+          -keep class com.mr.flutter.plugin.filepicker.** { *; }
+          -keep class com.arthenica.ffmpegkit.** { *; }
+          PROGUARD
+          
+          # Link Proguard file in Kotlin DSL
+          sed -i '/getByName("release") {/a \            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")' android/app/build.gradle.kts || true
+          # Link Proguard file in Groovy
+          sed -i '/release {/a \            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"' android/app/build.gradle || true
+
+      - name: Build APK
+        run: flutter build apk --release
         
       - uses: actions/upload-artifact@v4
         with:
