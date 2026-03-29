@@ -9,19 +9,14 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _urlController = TextEditingController();
-  bool _isValidUrl = true;
+  final TextEditingController _keyController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     final provider = Provider.of<SettingsProvider>(context, listen: false);
     _urlController.text = provider.apiUrl;
-  }
-
-  void _validateUrl(String url) {
-    setState(() {
-      _isValidUrl = url.startsWith('http://') || url.startsWith('https://');
-    });
+    _keyController.text = provider.apiKey;
   }
 
   @override
@@ -29,9 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = Provider.of<SettingsProvider>(context);
     
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Settings'),
-      ),
+      appBar: AppBar(title: Text('Settings')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -43,89 +36,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Backend API URL',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'The server that processes your videos',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
-                    ),
+                    Text('API Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     SizedBox(height: 16),
                     TextField(
                       controller: _urlController,
                       decoration: InputDecoration(
-                        labelText: 'API Endpoint',
-                        hintText: 'https://your-backend.com/process',
+                        labelText: 'API Endpoint (Groq or OpenAI)',
                         border: OutlineInputBorder(),
-                        errorText: _isValidUrl ? null : 'Must start with http:// or https://',
                         prefixIcon: Icon(Icons.link),
                       ),
-                      onChanged: _validateUrl,
+                    ),
+                    SizedBox(height: 16),
+                    TextField(
+                      controller: _keyController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'API Key (Starts with gsk_...)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.vpn_key),
+                      ),
                     ),
                     SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: _isValidUrl && _urlController.text.isNotEmpty
-                          ? () {
-                              provider.setApiUrl(_urlController.text);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('API URL saved'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                              Navigator.pop(context);
-                            }
-                          : null,
+                      onPressed: () {
+                        provider.setSettings(_urlController.text, _keyController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Settings saved'), backgroundColor: Colors.green),
+                        );
+                        Navigator.pop(context);
+                      },
                       child: Text('Save Settings'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Current URL',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Container(
-                      padding: EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        provider.apiUrl,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Default URL will work after deploying backend',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.blue,
-                      ),
                     ),
                   ],
                 ),
