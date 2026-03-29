@@ -64,23 +64,37 @@ class _StudioScreenState extends State<StudioScreen> {
       final returnCode = await session.getReturnCode();
       if (!ReturnCode.isSuccess(returnCode)) throw Exception("Audio compression failed.");
 
-      // 2. Transcribe (Whisper)
+      // 2. Transcribe with Timestamps
       setState(() => _statusText = '2/3: Transcribing with AI...');
       var req = http.MultipartRequest('POST', Uri.parse(settings.apiUrl));
       req.headers['Authorization'] = 'Bearer ${settings.apiKey}';
       req.fields['model'] = 'whisper-large-v3';
+      req.fields['response_format'] = 'verbose_json'; // Request timestamps
       req.files.add(await http.MultipartFile.fromPath('file', outPath));
       
       final res = await http.Response.fromStream(await req.send());
       final data = json.decode(res.body);
       if (res.statusCode != 200) throw Exception(data['error']?['message'] ?? 'Transcription failed');
       
-      final englishText = data['text'] as String;
-      setState(() => _englishTranscript = englishText);
+      // Parse segments to rebuild the timestamped text
+      StringBuffer transcriptBuffer = StringBuffer();
+      if (data['segments'] != null) {
+        for (var seg in data['segments']) {
+          double start = (seg['start'] as num).toDouble();
+          double end = (seg['end'] as num).toDouble();
+          String text = seg['text'].toString().trim();
+          transcriptBuffer.writeln('[${start.toStringAsFixed(1)}s - ${end.toStringAsFixed(1)}s] $text');
+        }
+      } else {
+        transcriptBuffer.write(data['text']);
+      }
+      
+      final textWithTimestamps = transcriptBuffer.toString().trim();
+      setState(() => _englishTranscript = textWithTimestamps);
 
       // 3. Translate (Llama 3)
       setState(() => _statusText = '3/3: Generating pure Hausa localization...');
-      final hausaText = await TranslationService.translateToHausa(englishText, settings.apiKey);
+      final hausaText = await TranslationService.translateToHausa(textWithTimestamps, settings.apiKey);
       setState(() => _hausaTranslation = hausaText);
 
       setState(() => _statusText = 'Complete!');
@@ -92,18 +106,31 @@ class _StudioScreenState extends State<StudioScreen> {
   }
 
   Future<void> _saveProject() async {
-    if (_englishTranscript.isEmpty || _hausaTranslation.isEmpty) return;
+    if (_englishTranscript.isEmpty || _hausaTranslation.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot save: Transcript or Translation is empty!'), backgroundColor: Colors.red)
+      );
+      return;
+    }
     
-    final project = Project(
-      title: _selectedFile!.path.split('/').last,
-      mediaPath: _selectedFile!.path,
-      englishTranscript: _englishTranscript,
-      hausaTranslation: _hausaTranslation,
-      createdAt: DateTime.now().toIso8601String(),
-    );
-    
-    await DatabaseHelper.instance.create(project);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved to Database!'), backgroundColor: Colors.green));
+    try {
+      final project = Project(
+        title: _selectedFile!.path.split('/').last,
+        mediaPath: _selectedFile!.path,
+        englishTranscript: _englishTranscript,
+        hausaTranslation: _hausaTranslation,
+        createdAt: DateTime.now().toIso8601String(),
+      );
+      
+      await DatabaseHelper.instance.create(project);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Project saved successfully!'), backgroundColor: Colors.green)
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Database Error: $e'), backgroundColor: Colors.red)
+      );
+    }
   }
 
   @override

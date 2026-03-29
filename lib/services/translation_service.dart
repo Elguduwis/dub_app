@@ -12,11 +12,11 @@ class TranslationService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
-        'model': 'llama3-70b-8192',
+        'model': 'llama-3.3-70b-versatile',
         'messages': [
           {
             'role': 'system',
-            'content': 'You are an expert linguist and localization professional. Translate the following English text into pure, highly professional, and idiomatic Hausa. Do NOT perform a literal, word-for-word translation. Ensure the syntax, vocabulary, and cultural context sound perfectly natural to a native Hausa speaker. Return ONLY the translated Hausa text with no additional commentary.'
+            'content': 'You are an expert localization professional. Translate the following English transcript into pure, highly professional, and idiomatic Hausa. IMPORTANT: The text contains timestamps (e.g., [0.0s - 2.5s]). You MUST keep these exact timestamp brackets at the beginning of each line. Only translate the text following the timestamps.'
           },
           {
             'role': 'user',
@@ -31,7 +31,8 @@ class TranslationService {
       final data = jsonDecode(response.body);
       return data['choices'][0]['message']['content'].trim();
     } else {
-      throw Exception('Translation API Error: ${response.statusCode}');
+      final errorData = jsonDecode(response.body);
+      throw Exception("Translation API Error ${response.statusCode}: ${errorData['error']?['message'] ?? 'Unknown Error'}");
     }
   }
 }
