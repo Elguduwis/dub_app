@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,22 +25,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pickFile() async {
     try {
-      // Using Google's official file_selector package
-      final XFile? file = await openFile(
-        acceptedTypeGroups: <XTypeGroup>[
-          XTypeGroup(
-            label: 'Media Files',
-            extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'],
-          ),
-        ],
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
       );
       
-      if (file != null) {
-        setState(() {
-          _selectedFile = File(file.path);
-          _segments = [];
-          _error = null;
-        });
+      if (result != null && result.files.single.path != null) {
+        String path = result.files.single.path!;
+        String ext = path.split('.').last.toLowerCase();
+        
+        List<String> allowed = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'];
+        
+        if (allowed.contains(ext)) {
+          setState(() {
+            _selectedFile = File(path);
+            _segments = [];
+            _error = null;
+          });
+        } else {
+          setState(() {
+            _error = 'Invalid file type ($ext). Please select an audio or video file.';
+          });
+        }
       }
     } catch (e) {
       setState(() {
@@ -68,12 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final tempDir = await getTemporaryDirectory();
       final outputPath = '${tempDir.path}/compressed_audio.mp3';
       
-      // FFmpeg: Extract audio, convert to mono, 16kHz, low bitrate
       final session = await FFmpegKit.execute('-y -i "${_selectedFile!.path}" -vn -ar 16000 -ac 1 -b:a 32k "$outputPath"');
       final returnCode = await session.getReturnCode();
       
       if (!ReturnCode.isSuccess(returnCode)) {
-        throw Exception("Failed to extract audio. Ensure file is a valid media file.");
+        throw Exception("Failed to compress audio. Ensure the file is a valid media format.");
       }
 
       setState(() => _statusText = 'Sending to Fast AI...');
@@ -94,10 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _segments = segmentsJson.map((seg) => TranscriptionSegment.fromJson(seg)).toList();
           });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Transcription Complete!'), backgroundColor: Colors.green),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Success!'), backgroundColor: Colors.green));
         } else {
           throw Exception("API did not return segments.");
         }
@@ -122,21 +124,15 @@ class _HomeScreenState extends State<HomeScreen> {
       buffer.writeln('${i + 1}. [${seg.start.toStringAsFixed(1)}s - ${seg.end.toStringAsFixed(1)}s]: ${seg.text}');
     }
     Clipboard.setData(ClipboardData(text: buffer.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Transcription copied!'), backgroundColor: Colors.blue),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied!'), backgroundColor: Colors.blue));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Dub App'),
-        elevation: 0,
-        actions: [
-          IconButton(icon: Icon(Icons.settings), onPressed: () => Navigator.pushNamed(context, '/settings')),
-        ],
-      ),
+      appBar: AppBar(title: Text('Dub App'), elevation: 0, actions: [
+        IconButton(icon: Icon(Icons.settings), onPressed: () => Navigator.pushNamed(context, '/settings')),
+      ]),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -152,11 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     SizedBox(height: 16),
                     Text('Fast AI Transcription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                     SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: _pickFile,
-                      icon: Icon(Icons.folder_open),
-                      label: Text('Select File'),
-                    ),
+                    ElevatedButton.icon(onPressed: _pickFile, icon: Icon(Icons.folder_open), label: Text('Select File')),
                     if (_selectedFile != null) ...[
                       SizedBox(height: 12),
                       Text(_selectedFile!.path.split('/').last, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -168,14 +160,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: _isUploading || _selectedFile == null ? null : _processFile,
                         style: ElevatedButton.styleFrom(padding: EdgeInsets.symmetric(vertical: 12)),
                         child: _isUploading
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                                  SizedBox(width: 12),
-                                  Text(_statusText),
-                                ],
-                              )
+                            ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                                SizedBox(width: 12),
+                                Text(_statusText),
+                              ])
                             : Text(_statusText),
                       ),
                     ),
