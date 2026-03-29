@@ -17,7 +17,6 @@ jobs:
           
       - name: Clean and Scaffold Android
         run: |
-          # Destroy existing android cache to force a pristine plugin registry
           rm -rf android
           flutter clean
           flutter create --platforms=android .
@@ -37,16 +36,24 @@ jobs:
           python3 -c "
           import os
           
-          # 1. Update AndroidManifest.xml (Permissions safely injected before application tag)
-          manifest_path = 'android/app/src/main/AndroidManifest.xml'
-          if os.path.exists(manifest_path):
-              with open(manifest_path, 'r') as f: m = f.read()
+          # 1. Update AndroidManifest (Permissions)
+          manifest = 'android/app/src/main/AndroidManifest.xml'
+          if os.path.exists(manifest):
+              with open(manifest, 'r') as f: m = f.read()
               perms = '    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n'
               if 'RECORD_AUDIO' not in m:
                   m = m.replace('<application', perms + '    <application')
-                  with open(manifest_path, 'w') as f: f.write(m)
+                  with open(manifest, 'w') as f: f.write(m)
 
-          # 2. Update settings.gradle.kts or settings.gradle (FFMPEG Repo)
+          # 2. Force FFmpeg 'audio' package to shrink app size in root build file
+          root_kts = 'android/build.gradle.kts'
+          root_groovy = 'android/build.gradle'
+          if os.path.exists(root_kts):
+              with open(root_kts, 'a') as f: f.write('\next.set(\"ffmpegKitPackage\", \"audio\")\n')
+          elif os.path.exists(root_groovy):
+              with open(root_groovy, 'a') as f: f.write('\next { ffmpegKitPackage = \"audio\" }\n')
+
+          # 3. Add Maven repo to settings
           settings_kts = 'android/settings.gradle.kts'
           settings_groovy = 'android/settings.gradle'
           if os.path.exists(settings_kts):
@@ -60,7 +67,7 @@ jobs:
                   s = s.replace('mavenCentral()', 'mavenCentral()\n        maven { url \"https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main\" }')
                   with open(settings_groovy, 'w') as f: f.write(s)
 
-          # 3. Update build.gradle.kts or build.gradle (Hard-disable Minify & Link Proguard)
+          # 4. Disable shrinker (R8) but link Proguard
           build_kts = 'android/app/build.gradle.kts'
           build_groovy = 'android/app/build.gradle'
           if os.path.exists(build_kts):
@@ -77,10 +84,11 @@ jobs:
               with open(build_groovy, 'w') as f: f.write(b)
           "
 
-      - name: Build APK
-        run: flutter build apk --release --no-shrink
+      - name: Build Split APKs (Dramatically reduces size)
+        run: flutter build apk --release --split-per-abi
         
       - uses: actions/upload-artifact@v4
         with:
-          name: Dub-App-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Dub-App-Optimized-APKs
+          # Wildcard grabs all the split APKs generated
+          path: build/app/outputs/flutter-apk/*-release.apk
