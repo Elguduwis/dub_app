@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/database_helper.dart';
 import '../models/project.dart';
@@ -20,6 +21,38 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     setState(() {
       _projectsList = DatabaseHelper.instance.readAllProjects();
     });
+  }
+
+  // Exports the project to the public Downloads folder so it survives uninstalls
+  Future<void> _exportToDownloads(Project project) async {
+    try {
+      final dir = Directory('/storage/emulated/0/Download');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      
+      String safeTitle = project.title.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final file = File('${dir.path}/${safeTitle}_Translation.txt');
+      
+      String content = "PROJECT: ${project.title}\n";
+      content += "DATE: ${DateTime.parse(project.createdAt).toLocal()}\n";
+      content += "========================================\n\n";
+      content += "${project.targetLanguage.toUpperCase()} TRANSLATION:\n";
+      content += "${project.translatedText}\n\n";
+      content += "========================================\n\n";
+      content += "ORIGINAL TRANSCRIPT:\n";
+      content += "${project.englishTranscript}\n";
+
+      await file.writeAsString(content);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported to Downloads folder!'), backgroundColor: Colors.green)
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red)
+      );
+    }
   }
 
   @override
@@ -76,11 +109,21 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${project.targetLanguage}:', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${project.targetLanguage}:', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                              TextButton.icon(
+                                onPressed: () => _exportToDownloads(project),
+                                icon: Icon(Icons.download),
+                                label: Text('Export to Phone'),
+                              )
+                            ],
+                          ),
                           SizedBox(height: 4),
                           SelectableText(project.translatedText),
                           Divider(height: 24),
-                          Text('English:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          Text('Original:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                           SizedBox(height: 4),
                           SelectableText(project.englishTranscript),
                         ],

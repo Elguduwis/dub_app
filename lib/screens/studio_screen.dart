@@ -19,6 +19,7 @@ class StudioScreen extends StatefulWidget {
 
 class _StudioScreenState extends State<StudioScreen> {
   File? _selectedFile;
+  String? _fileName;
   bool _isProcessing = false;
   String _statusText = 'Ready to Process';
   String _sourceTranscript = '';
@@ -34,6 +35,7 @@ class _StudioScreenState extends State<StudioScreen> {
       if (result != null && result.files.single.path != null) {
         setState(() {
           _selectedFile = File(result.files.single.path!);
+          _fileName = result.files.single.name; // Get the actual file name
           _sourceTranscript = ''; _translatedText = ''; _error = null;
           _statusText = 'File Selected';
         });
@@ -91,19 +93,56 @@ class _StudioScreenState extends State<StudioScreen> {
     }
   }
 
-  Future<void> _saveProject() async {
+  // The new Pop-Up Dialog before saving
+  Future<void> _showSaveDialog() async {
     if (_sourceTranscript.isEmpty || _translatedText.isEmpty) return;
+    
+    TextEditingController titleController = TextEditingController(text: _fileName ?? 'My Project');
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Save Project', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: titleController,
+            decoration: InputDecoration(
+              labelText: 'Project Title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _executeSave(titleController.text);
+              },
+              child: Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeSave(String title) async {
     try {
       await DatabaseHelper.instance.create(Project(
-        title: _selectedFile!.path.split('/').last,
+        title: title,
         mediaPath: _selectedFile!.path,
-        englishTranscript: _sourceTranscript, // Database retains this column name
+        englishTranscript: _sourceTranscript,
         translatedText: _translatedText,
         targetLanguage: _selectedLanguage,
         createdAt: DateTime.now().toIso8601String(),
       ));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved!'), backgroundColor: Colors.green));
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red)); }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved to Database!'), backgroundColor: Colors.green));
+    } catch (e) { 
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red)); 
+    }
   }
 
   @override
@@ -124,7 +163,9 @@ class _StudioScreenState extends State<StudioScreen> {
                     Icon(Icons.mic_external_on, size: 50, color: Theme.of(context).colorScheme.primary),
                     SizedBox(height: 16),
                     ElevatedButton.icon(onPressed: _isProcessing ? null : _pickFile, icon: Icon(Icons.folder), label: Text('Select File')),
-                    if (_selectedFile != null) ...[
+                    if (_fileName != null) ...[
+                      SizedBox(height: 12),
+                      Text(_fileName!, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary), textAlign: TextAlign.center),
                       SizedBox(height: 16),
                       DropdownButtonFormField<String>(
                         decoration: InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12)),
@@ -155,11 +196,15 @@ class _StudioScreenState extends State<StudioScreen> {
             if (_error != null) Padding(padding: EdgeInsets.only(top: 16), child: Text(_error!, style: TextStyle(color: Colors.red))),
             if (_sourceTranscript.isNotEmpty) ...[
               SizedBox(height: 20),
-              _buildResultCard('Groq Auto-Detect (Original Audio)', _sourceTranscript),
+              _buildResultCard('Original Audio Transcript', _sourceTranscript),
               SizedBox(height: 16),
               _buildResultCard('$_selectedLanguage via Gemini', _translatedText),
               SizedBox(height: 20),
-              ElevatedButton.icon(onPressed: _saveProject, icon: Icon(Icons.save), label: Text('Save Project'))
+              ElevatedButton.icon(
+                onPressed: _showSaveDialog, // Triggers the popup instead of saving silently
+                icon: Icon(Icons.save), 
+                label: Text('Save Project')
+              )
             ]
           ],
         ),
