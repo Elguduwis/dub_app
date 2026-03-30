@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Kaida Dub
 on:
   push:
     branches: [ main, master ]
@@ -22,6 +22,9 @@ jobs:
           flutter create --platforms=android .
           flutter pub get
           
+      - name: Generate Kaida Dub Icons
+        run: dart run flutter_launcher_icons
+
       - name: Create Proguard Rules
         run: |
           cat << 'PROGUARD' > android/app/proguard-rules.pro
@@ -35,17 +38,23 @@ jobs:
         run: |
           python3 -c "
           import os
+          import re
           
-          # 1. Update AndroidManifest (Permissions)
+          # 1. Update AndroidManifest (Permissions & App Name)
           manifest = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest):
               with open(manifest, 'r') as f: m = f.read()
+              
+              # Rename App to Kaida Dub
+              m = re.sub(r'android:label=\"[^\"]+\"', 'android:label=\"Kaida Dub\"', m)
+              
               perms = '    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n'
               if 'RECORD_AUDIO' not in m:
                   m = m.replace('<application', perms + '    <application')
-                  with open(manifest, 'w') as f: f.write(m)
+                  
+              with open(manifest, 'w') as f: f.write(m)
 
-          # 2. Force FFmpeg 'audio' package to shrink app size in root build file
+          # 2. Force FFmpeg 'audio' package
           root_kts = 'android/build.gradle.kts'
           root_groovy = 'android/build.gradle'
           if os.path.exists(root_kts):
@@ -84,11 +93,27 @@ jobs:
               with open(build_groovy, 'w') as f: f.write(b)
           "
 
-      - name: Build Split APKs (Dramatically reduces size)
+      - name: Setup Keystore & Signing Properties
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo $KEYSTORE_BASE64 | base64 --decode > android/app/upload-keystore.jks
+          cat << 'EOF' > android/key.properties
+          storePassword=kaidadub2026
+          keyPassword=kaidadub2026
+          keyAlias=upload
+          storeFile=upload-keystore.jks
+          EOF
+          
+      - name: Build Split APKs (For direct phone install)
         run: flutter build apk --release --split-per-abi
+        
+      - name: Build AAB (For Google Play Store)
+        run: flutter build appbundle --release
         
       - uses: actions/upload-artifact@v4
         with:
-          name: Dub-App-Optimized-APKs
-          # Wildcard grabs all the split APKs generated
-          path: build/app/outputs/flutter-apk/*-release.apk
+          name: Kaida-Dub-Releases
+          path: |
+            build/app/outputs/flutter-apk/*-release.apk
+            build/app/outputs/bundle/release/app-release.aab
