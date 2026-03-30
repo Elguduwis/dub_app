@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeProvider extends ChangeNotifier {
   static const String _themeKey = 'is_dark_mode';
-  bool _isDarkMode = false;
+  bool _isDarkMode = true; // Defaulting to the sleek dark mode
 
   bool get isDarkMode => _isDarkMode;
 
@@ -13,7 +13,7 @@ class ThemeProvider extends ChangeNotifier {
 
   Future<void> _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    _isDarkMode = prefs.getBool(_themeKey) ?? false;
+    _isDarkMode = prefs.getBool(_themeKey) ?? true;
     notifyListeners();
   }
 
@@ -28,22 +28,45 @@ class ThemeProvider extends ChangeNotifier {
     return _isDarkMode
         ? ThemeData(
             brightness: Brightness.dark,
-            primarySwatch: Colors.purple,
-            colorScheme: ColorScheme.dark(
-              primary: Colors.purpleAccent,
-              secondary: Colors.purple,
-              surface: Color(0xFF121212), 
+            scaffoldBackgroundColor: const Color(0xFF121212),
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.white,
+              secondary: Colors.grey,
+              surface: Color(0xFF1E1E1E), 
+              onPrimary: Colors.black,
             ),
             useMaterial3: true,
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xFF121212),
+              elevation: 0,
+              iconTheme: IconThemeData(color: Colors.white),
+            ),
+            cardTheme: CardTheme(
+              color: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 2,
+            ),
           )
         : ThemeData(
             brightness: Brightness.light,
-            primarySwatch: Colors.purple,
-            colorScheme: ColorScheme.light(
-              primary: Colors.purple,
-              secondary: Colors.purpleAccent,
+            scaffoldBackgroundColor: const Color(0xFFF5F5F7),
+            colorScheme: const ColorScheme.light(
+              primary: Colors.black,
+              secondary: Colors.grey,
+              surface: Colors.white,
+              onPrimary: Colors.white,
             ),
             useMaterial3: true,
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xFFF5F5F7),
+              elevation: 0,
+              iconTheme: IconThemeData(color: Colors.black),
+            ),
+            cardTheme: CardTheme(
+              color: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 2,
+            ),
           );
   }
 }

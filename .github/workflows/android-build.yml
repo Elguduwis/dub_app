@@ -19,13 +19,13 @@ jobs:
         run: |
           rm -rf android
           flutter clean
-          flutter create --platforms=android .
+          flutter create --org com.kainuwa --project-name dubapp --platforms=android .
           flutter pub get
           
       - name: Generate Kaida Dub Icons
         run: dart run flutter_launcher_icons
 
-      - name: Create Proguard Rules
+      - name: Create Proguard Rules (Crucial for App Shrinking)
         run: |
           cat << 'PROGUARD' > android/app/proguard-rules.pro
           -keep class io.flutter.plugins.** { *; }
@@ -44,17 +44,13 @@ jobs:
           manifest = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest):
               with open(manifest, 'r') as f: m = f.read()
-              
-              # Rename App to Kaida Dub
               m = re.sub(r'android:label=\"[^\"]+\"', 'android:label=\"Kaida Dub\"', m)
-              
               perms = '    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" />\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n'
               if 'RECORD_AUDIO' not in m:
                   m = m.replace('<application', perms + '    <application')
-                  
               with open(manifest, 'w') as f: f.write(m)
 
-          # 2. Force FFmpeg 'audio' package
+          # 2. Force FFmpeg 'audio' package (Massive Size Reduction)
           root_kts = 'android/build.gradle.kts'
           root_groovy = 'android/build.gradle'
           if os.path.exists(root_kts):
@@ -76,24 +72,28 @@ jobs:
                   s = s.replace('mavenCentral()', 'mavenCentral()\n        maven { url \"https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main\" }')
                   with open(settings_groovy, 'w') as f: f.write(s)
 
-          # 4. Disable shrinker (R8) but link Proguard
+          # 4. ENABLE shrinker (R8) now that we have strong Proguard rules
           build_kts = 'android/app/build.gradle.kts'
           build_groovy = 'android/app/build.gradle'
           if os.path.exists(build_kts):
               with open(build_kts, 'r') as f: b = f.read()
               b = b.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
+              b = b.replace('namespace = \"com.example.dubapp\"', 'namespace = \"com.kainuwa.dubapp\"')
+              b = b.replace('applicationId = \"com.example.dubapp\"', 'applicationId = \"com.kainuwa.dubapp\"')
               if 'proguardFiles' not in b:
-                  b = b.replace('release {', 'release {\n            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\")')
+                  b = b.replace('release {', 'release {\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\")')
               with open(build_kts, 'w') as f: f.write(b)
           elif os.path.exists(build_groovy):
               with open(build_groovy, 'r') as f: b = f.read()
               b = b.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 24')
+              b = b.replace('namespace \"com.example.dubapp\"', 'namespace \"com.kainuwa.dubapp\"')
+              b = b.replace('applicationId \"com.example.dubapp\"', 'applicationId \"com.kainuwa.dubapp\"')
               if 'proguardFiles' not in b:
-                  b = b.replace('release {', 'release {\n            minifyEnabled false\n            shrinkResources false\n            proguardFiles getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\"')
+                  b = b.replace('release {', 'release {\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\"')
               with open(build_groovy, 'w') as f: f.write(b)
           "
 
-      - name: Setup Keystore & Signing Properties
+      - name: Setup Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -111,9 +111,10 @@ jobs:
       - name: Build AAB (For Google Play Store)
         run: flutter build appbundle --release
         
-      - uses: actions/upload-artifact@v4
+      - name: Upload Clean Optimized Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: Kaida-Dub-Releases
+          name: Kaida-Dub-Production-Build
           path: |
-            build/app/outputs/flutter-apk/*-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/bundle/release/app-release.aab
