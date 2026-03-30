@@ -25,12 +25,16 @@ jobs:
       - name: Generate Kaida Dub Icons
         run: dart run flutter_launcher_icons
 
-      - name: Create Proguard Rules (Crucial for App Shrinking)
+      - name: Create Proguard Rules (Fixed Blanket Protection)
         run: |
           cat << 'PROGUARD' > android/app/proguard-rules.pro
+          # Blanket protection for ALL Flutter plugins to prevent MissingPluginException
           -keep class io.flutter.plugins.** { *; }
           -keep class com.mr.flutter.plugin.filepicker.** { *; }
           -keep class com.arthenica.ffmpegkit.** { *; }
+          -keep class com.tekartik.sqflite.** { *; }
+          -keep class bz.rxla.flutter.sharedpreferences.** { *; }
+          -keep class io.flutter.plugins.pathprovider.** { *; }
           -dontwarn com.arthenica.ffmpegkit.**
           PROGUARD
 
@@ -72,7 +76,7 @@ jobs:
                   s = s.replace('mavenCentral()', 'mavenCentral()\n        maven { url \"https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main\" }')
                   with open(settings_groovy, 'w') as f: f.write(s)
 
-          # 4. ENABLE shrinker (R8) now that we have strong Proguard rules
+          # 4. ENABLE shrinker (R8) with linked Proguard
           build_kts = 'android/app/build.gradle.kts'
           build_groovy = 'android/app/build.gradle'
           if os.path.exists(build_kts):
