@@ -11,7 +11,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _keyController = TextEditingController();
-  final TextEditingController _hfController = TextEditingController();
+  final TextEditingController _geminiController = TextEditingController();
 
   @override
   void initState() {
@@ -19,7 +19,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = Provider.of<SettingsProvider>(context, listen: false);
     _urlController.text = provider.apiUrl;
     _keyController.text = provider.apiKey;
-    _hfController.text = provider.hfKey;
+    _geminiController.text = provider.geminiKey;
   }
 
   @override
@@ -28,20 +28,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final themeProvider = Provider.of<ThemeProvider>(context);
     
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: Text('Settings', style: TextStyle(fontWeight: FontWeight.bold))),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           Card(
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: SwitchListTile(
               title: Text('Dark Mode', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('Toggle deep purple dark theme'),
-              secondary: Icon(themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode, color: Theme.of(context).colorScheme.primary),
+              secondary: Icon(themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode),
               value: themeProvider.isDarkMode,
               onChanged: (value) => themeProvider.toggleTheme(),
             ),
@@ -49,7 +44,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SizedBox(height: 16),
           Card(
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
@@ -58,31 +52,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text('API Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 20),
                   TextField(
-                    controller: _urlController,
-                    decoration: InputDecoration(
-                      labelText: 'Whisper API Endpoint',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      prefixIcon: Icon(Icons.link),
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  TextField(
                     controller: _keyController,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: 'Groq API Key (gsk_...)',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      prefixIcon: Icon(Icons.vpn_key),
+                      labelText: 'Groq API Key (For Transcription)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.mic),
                     ),
                   ),
                   SizedBox(height: 16),
                   TextField(
-                    controller: _hfController,
+                    controller: _geminiController,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: 'Hugging Face Token (hf_...)',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      prefixIcon: Icon(Icons.api),
+                      labelText: 'Gemini API Key (For Translation)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.translate),
                     ),
                   ),
                   SizedBox(height: 20),
@@ -91,15 +76,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 50,
                     child: ElevatedButton.icon(
                       icon: Icon(Icons.save),
-                      label: Text('Save Settings', style: TextStyle(fontSize: 16)),
-                      style: ElevatedButton.styleFrom(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
+                      label: Text('Save Settings'),
                       onPressed: () {
-                        settingsProvider.setSettings(_urlController.text, _keyController.text, _hfController.text);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Settings saved successfully!'), backgroundColor: Colors.green),
-                        );
+                        settingsProvider.setSettings(_urlController.text, _keyController.text, _geminiController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved!'), backgroundColor: Colors.green));
                       },
                     ),
                   ),
