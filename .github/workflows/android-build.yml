@@ -25,19 +25,6 @@ jobs:
       - name: Generate Kaida Dub Icons
         run: dart run flutter_launcher_icons
 
-      - name: Create Proguard Rules (Fixed Blanket Protection)
-        run: |
-          cat << 'PROGUARD' > android/app/proguard-rules.pro
-          # Blanket protection for ALL Flutter plugins to prevent MissingPluginException
-          -keep class io.flutter.plugins.** { *; }
-          -keep class com.mr.flutter.plugin.filepicker.** { *; }
-          -keep class com.arthenica.ffmpegkit.** { *; }
-          -keep class com.tekartik.sqflite.** { *; }
-          -keep class bz.rxla.flutter.sharedpreferences.** { *; }
-          -keep class io.flutter.plugins.pathprovider.** { *; }
-          -dontwarn com.arthenica.ffmpegkit.**
-          PROGUARD
-
       - name: Inject Configurations via Python
         run: |
           python3 -c "
@@ -54,7 +41,7 @@ jobs:
                   m = m.replace('<application', perms + '    <application')
               with open(manifest, 'w') as f: f.write(m)
 
-          # 2. Force FFmpeg 'audio' package (Massive Size Reduction)
+          # 2. Force FFmpeg 'audio' package (This keeps the size tiny!)
           root_kts = 'android/build.gradle.kts'
           root_groovy = 'android/build.gradle'
           if os.path.exists(root_kts):
@@ -76,7 +63,7 @@ jobs:
                   s = s.replace('mavenCentral()', 'mavenCentral()\n        maven { url \"https://raw.githubusercontent.com/DucLQ92/ffmpeg-kit-audio/main\" }')
                   with open(settings_groovy, 'w') as f: f.write(s)
 
-          # 4. ENABLE shrinker (R8) with linked Proguard
+          # 4. Enforce Package Name and EXPLICITLY DISABLE MINIFY to save the plugins
           build_kts = 'android/app/build.gradle.kts'
           build_groovy = 'android/app/build.gradle'
           if os.path.exists(build_kts):
@@ -84,16 +71,20 @@ jobs:
               b = b.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
               b = b.replace('namespace = \"com.example.dubapp\"', 'namespace = \"com.kainuwa.dubapp\"')
               b = b.replace('applicationId = \"com.example.dubapp\"', 'applicationId = \"com.kainuwa.dubapp\"')
-              if 'proguardFiles' not in b:
-                  b = b.replace('release {', 'release {\n            isMinifyEnabled = true\n            isShrinkResources = true\n            proguardFiles(getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\")')
+              if 'isMinifyEnabled = true' in b:
+                  b = b.replace('isMinifyEnabled = true', 'isMinifyEnabled = false')
+              elif 'release {' in b and 'isMinifyEnabled' not in b:
+                  b = b.replace('release {', 'release {\n            isMinifyEnabled = false\n            isShrinkResources = false')
               with open(build_kts, 'w') as f: f.write(b)
           elif os.path.exists(build_groovy):
               with open(build_groovy, 'r') as f: b = f.read()
               b = b.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 24')
               b = b.replace('namespace \"com.example.dubapp\"', 'namespace \"com.kainuwa.dubapp\"')
               b = b.replace('applicationId \"com.example.dubapp\"', 'applicationId \"com.kainuwa.dubapp\"')
-              if 'proguardFiles' not in b:
-                  b = b.replace('release {', 'release {\n            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile(\"proguard-android-optimize.txt\"), \"proguard-rules.pro\"')
+              if 'minifyEnabled true' in b:
+                  b = b.replace('minifyEnabled true', 'minifyEnabled false')
+              elif 'release {' in b and 'minifyEnabled' not in b:
+                  b = b.replace('release {', 'release {\n            minifyEnabled false\n            shrinkResources false')
               with open(build_groovy, 'w') as f: f.write(b)
           "
 
@@ -109,11 +100,11 @@ jobs:
           storeFile=upload-keystore.jks
           EOF
           
-      - name: Build Split APKs (For direct phone install)
-        run: flutter build apk --release --split-per-abi
+      - name: Build Split APKs (With --no-shrink flag to bypass R8)
+        run: flutter build apk --release --split-per-abi --no-shrink
         
-      - name: Build AAB (For Google Play Store)
-        run: flutter build appbundle --release
+      - name: Build AAB (With --no-shrink flag to bypass R8)
+        run: flutter build appbundle --release --no-shrink
         
       - name: Upload Clean Optimized Artifacts
         uses: actions/upload-artifact@v4
