@@ -69,16 +69,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     child: Icon(Icons.subtitles, color: Theme.of(context).colorScheme.primary),
                   ),
                   title: Text(project.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('${date.day}/${date.month}/${date.year}'),
+                  subtitle: Text('${project.targetLanguage} • ${date.day}/${date.month}/${date.year}'),
                   children: [
                     Padding(
                       padding: EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Hausa:', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                          Text('${project.targetLanguage}:', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
                           SizedBox(height: 4),
-                          SelectableText(project.hausaTranslation),
+                          SelectableText(project.translatedText),
                           Divider(height: 24),
                           Text('English:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                           SizedBox(height: 4),
