@@ -21,7 +21,7 @@ class _StudioScreenState extends State<StudioScreen> {
   File? _selectedFile;
   bool _isProcessing = false;
   String _statusText = 'Ready to Process';
-  String _englishTranscript = '';
+  String _sourceTranscript = '';
   String _translatedText = '';
   String? _error;
   
@@ -34,7 +34,7 @@ class _StudioScreenState extends State<StudioScreen> {
       if (result != null && result.files.single.path != null) {
         setState(() {
           _selectedFile = File(result.files.single.path!);
-          _englishTranscript = ''; _translatedText = ''; _error = null;
+          _sourceTranscript = ''; _translatedText = ''; _error = null;
           _statusText = 'File Selected';
         });
       }
@@ -59,7 +59,7 @@ class _StudioScreenState extends State<StudioScreen> {
       final session = await FFmpegKit.execute('-y -i "${_selectedFile!.path}" -vn -ar 16000 -ac 1 -b:a 32k "$outPath"');
       if (!ReturnCode.isSuccess(await session.getReturnCode())) throw Exception("Compression failed.");
 
-      setState(() => _statusText = '2/3: Transcribing with Groq Whisper...');
+      setState(() => _statusText = '2/3: Transcribing (Auto-Detecting Language)...');
       var req = http.MultipartRequest('POST', Uri.parse(settings.apiUrl));
       req.headers['Authorization'] = 'Bearer ${settings.apiKey}';
       req.fields['model'] = 'whisper-large-v3';
@@ -77,7 +77,7 @@ class _StudioScreenState extends State<StudioScreen> {
         }
       }
       final transcribedText = transcriptBuffer.toString().trim();
-      setState(() => _englishTranscript = transcribedText);
+      setState(() => _sourceTranscript = transcribedText);
 
       setState(() => _statusText = '3/3: Generating pure $_selectedLanguage via Gemini...');
       final translated = await TranslationService.translateText(transcribedText, _selectedLanguage, settings.geminiKey);
@@ -92,12 +92,12 @@ class _StudioScreenState extends State<StudioScreen> {
   }
 
   Future<void> _saveProject() async {
-    if (_englishTranscript.isEmpty || _translatedText.isEmpty) return;
+    if (_sourceTranscript.isEmpty || _translatedText.isEmpty) return;
     try {
       await DatabaseHelper.instance.create(Project(
         title: _selectedFile!.path.split('/').last,
         mediaPath: _selectedFile!.path,
-        englishTranscript: _englishTranscript,
+        englishTranscript: _sourceTranscript, // Database retains this column name
         translatedText: _translatedText,
         targetLanguage: _selectedLanguage,
         createdAt: DateTime.now().toIso8601String(),
@@ -138,7 +138,13 @@ class _StudioScreenState extends State<StudioScreen> {
                         child: ElevatedButton(
                           onPressed: _isProcessing ? null : _runPipeline,
                           style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white),
-                          child: _isProcessing ? CircularProgressIndicator(color: Colors.white) : Text('Start AI Pipeline'),
+                          child: _isProcessing 
+                            ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                                SizedBox(width: 12),
+                                Flexible(child: Text(_statusText, overflow: TextOverflow.ellipsis))
+                              ])
+                            : Text('Start AI Pipeline'),
                         ),
                       ),
                     ]
@@ -147,9 +153,9 @@ class _StudioScreenState extends State<StudioScreen> {
               ),
             ),
             if (_error != null) Padding(padding: EdgeInsets.only(top: 16), child: Text(_error!, style: TextStyle(color: Colors.red))),
-            if (_englishTranscript.isNotEmpty) ...[
+            if (_sourceTranscript.isNotEmpty) ...[
               SizedBox(height: 20),
-              _buildResultCard('Groq Whisper (English)', _englishTranscript),
+              _buildResultCard('Groq Auto-Detect (Original Audio)', _sourceTranscript),
               SizedBox(height: 16),
               _buildResultCard('$_selectedLanguage via Gemini', _translatedText),
               SizedBox(height: 20),
