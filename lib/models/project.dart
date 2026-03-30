@@ -3,10 +3,19 @@ class Project {
   final String title;
   final String mediaPath;
   final String englishTranscript;
-  final String hausaTranslation;
+  final String translatedText;
+  final String targetLanguage;
   final String createdAt;
 
-  Project({this.id, required this.title, required this.mediaPath, required this.englishTranscript, required this.hausaTranslation, required this.createdAt});
+  Project({
+    this.id, 
+    required this.title, 
+    required this.mediaPath, 
+    required this.englishTranscript, 
+    required this.translatedText, 
+    required this.targetLanguage,
+    required this.createdAt
+  });
 
   Map<String, dynamic> toMap() {
     return {
@@ -14,7 +23,8 @@ class Project {
       'title': title,
       'mediaPath': mediaPath,
       'englishTranscript': englishTranscript,
-      'hausaTranslation': hausaTranslation,
+      'translatedText': translatedText,
+      'targetLanguage': targetLanguage,
       'createdAt': createdAt,
     };
   }
@@ -25,7 +35,8 @@ class Project {
       title: map['title'],
       mediaPath: map['mediaPath'],
       englishTranscript: map['englishTranscript'],
-      hausaTranslation: map['hausaTranslation'],
+      translatedText: map['translatedText'] ?? map['hausaTranslation'] ?? '',
+      targetLanguage: map['targetLanguage'] ?? 'Hausa',
       createdAt: map['createdAt'],
     );
   }

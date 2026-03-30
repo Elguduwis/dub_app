@@ -1,13 +1,12 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import '../providers/settings_provider.dart';
+import '../services/vibe_voice_service.dart';
 import '../services/translation_service.dart';
 import '../services/database_helper.dart';
 import '../models/project.dart';
@@ -22,8 +21,14 @@ class _StudioScreenState extends State<StudioScreen> {
   bool _isProcessing = false;
   String _statusText = 'Ready to Process';
   String _englishTranscript = '';
-  String _hausaTranslation = '';
+  String _translatedText = '';
   String? _error;
+  
+  String _selectedLanguage = 'Hausa';
+  final List<String> _supportedLanguages = [
+    'Hausa', 'Yoruba', 'Igbo', 'Pidgin English', 'Swahili', 
+    'French', 'Arabic', 'Spanish', 'Portuguese'
+  ];
 
   Future<void> _pickFile() async {
     try {
@@ -32,7 +37,7 @@ class _StudioScreenState extends State<StudioScreen> {
         setState(() {
           _selectedFile = File(result.files.single.path!);
           _englishTranscript = '';
-          _hausaTranslation = '';
+          _translatedText = '';
           _error = null;
           _statusText = 'File Selected';
         });
@@ -45,8 +50,9 @@ class _StudioScreenState extends State<StudioScreen> {
   Future<void> _runPipeline() async {
     if (_selectedFile == null) return;
     final settings = Provider.of<SettingsProvider>(context, listen: false);
-    if (settings.apiKey.isEmpty) {
-      setState(() => _error = 'API Key missing in Settings');
+    
+    if (settings.apiKey.isEmpty || settings.hfKey.isEmpty) {
+      setState(() => _error = 'Missing Groq or Hugging Face Key in Settings');
       return;
     }
 
@@ -57,45 +63,24 @@ class _StudioScreenState extends State<StudioScreen> {
     });
 
     try {
-      // 1. Compress
       final tempDir = await getTemporaryDirectory();
       final outPath = '${tempDir.path}/temp_audio.mp3';
+      
       final session = await FFmpegKit.execute('-y -i "${_selectedFile!.path}" -vn -ar 16000 -ac 1 -b:a 32k "$outPath"');
       final returnCode = await session.getReturnCode();
       if (!ReturnCode.isSuccess(returnCode)) throw Exception("Audio compression failed.");
 
-      // 2. Transcribe with Timestamps
-      setState(() => _statusText = '2/3: Transcribing with AI...');
-      var req = http.MultipartRequest('POST', Uri.parse(settings.apiUrl));
-      req.headers['Authorization'] = 'Bearer ${settings.apiKey}';
-      req.fields['model'] = 'whisper-large-v3';
-      req.fields['response_format'] = 'verbose_json'; // Request timestamps
-      req.files.add(await http.MultipartFile.fromPath('file', outPath));
+      setState(() => _statusText = '2/3: Transcribing with VibeVoice (This may take a moment to wake the AI)...');
       
-      final res = await http.Response.fromStream(await req.send());
-      final data = json.decode(res.body);
-      if (res.statusCode != 200) throw Exception(data['error']?['message'] ?? 'Transcription failed');
-      
-      // Parse segments to rebuild the timestamped text
-      StringBuffer transcriptBuffer = StringBuffer();
-      if (data['segments'] != null) {
-        for (var seg in data['segments']) {
-          double start = (seg['start'] as num).toDouble();
-          double end = (seg['end'] as num).toDouble();
-          String text = seg['text'].toString().trim();
-          transcriptBuffer.writeln('[${start.toStringAsFixed(1)}s - ${end.toStringAsFixed(1)}s] $text');
-        }
-      } else {
-        transcriptBuffer.write(data['text']);
-      }
-      
-      final textWithTimestamps = transcriptBuffer.toString().trim();
-      setState(() => _englishTranscript = textWithTimestamps);
+      // NEW: VibeVoice multi-speaker transcription
+      final vibeVoiceScript = await VibeVoiceService.transcribe(outPath, settings.hfKey);
+      setState(() => _englishTranscript = vibeVoiceScript);
 
-      // 3. Translate (Llama 3)
-      setState(() => _statusText = '3/3: Generating pure Hausa localization...');
-      final hausaText = await TranslationService.translateToHausa(textWithTimestamps, settings.apiKey);
-      setState(() => _hausaTranslation = hausaText);
+      setState(() => _statusText = '3/3: Generating pure $_selectedLanguage localization...');
+      
+      // Translate the structured script using Llama 3
+      final translated = await TranslationService.translateText(vibeVoiceScript, _selectedLanguage, settings.apiKey);
+      setState(() => _translatedText = translated);
 
       setState(() => _statusText = 'Complete!');
     } catch (e) {
@@ -106,30 +91,23 @@ class _StudioScreenState extends State<StudioScreen> {
   }
 
   Future<void> _saveProject() async {
-    if (_englishTranscript.isEmpty || _hausaTranslation.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Cannot save: Transcript or Translation is empty!'), backgroundColor: Colors.red)
-      );
+    if (_englishTranscript.isEmpty || _translatedText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cannot save empty project!'), backgroundColor: Colors.red));
       return;
     }
-    
     try {
       final project = Project(
         title: _selectedFile!.path.split('/').last,
         mediaPath: _selectedFile!.path,
         englishTranscript: _englishTranscript,
-        hausaTranslation: _hausaTranslation,
+        translatedText: _translatedText,
+        targetLanguage: _selectedLanguage,
         createdAt: DateTime.now().toIso8601String(),
       );
-      
       await DatabaseHelper.instance.create(project);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Project saved successfully!'), backgroundColor: Colors.green)
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Project saved successfully!'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Database Error: $e'), backgroundColor: Colors.red)
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Database Error: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -160,6 +138,30 @@ class _StudioScreenState extends State<StudioScreen> {
                       SizedBox(height: 8),
                       Text(_selectedFile!.path.split('/').last, style: TextStyle(color: Colors.grey), maxLines: 1),
                       SizedBox(height: 16),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedLanguage,
+                            isExpanded: true,
+                            icon: Icon(Icons.language, color: Theme.of(context).colorScheme.primary),
+                            items: _supportedLanguages.map((String lang) {
+                              return DropdownMenuItem<String>(
+                                value: lang,
+                                child: Text('Translate to: $lang', style: TextStyle(fontWeight: FontWeight.bold)),
+                              );
+                            }).toList(),
+                            onChanged: _isProcessing ? null : (String? newValue) {
+                              if (newValue != null) setState(() => _selectedLanguage = newValue);
+                            },
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -184,9 +186,9 @@ class _StudioScreenState extends State<StudioScreen> {
             
             if (_englishTranscript.isNotEmpty) ...[
               SizedBox(height: 20),
-              _buildResultCard('English Transcript', _englishTranscript),
+              _buildResultCard('VibeVoice Script (English)', _englishTranscript),
               SizedBox(height: 16),
-              _buildResultCard('Hausa Translation (Professional)', _hausaTranslation),
+              _buildResultCard('$_selectedLanguage Translation (Professional)', _translatedText),
               SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: _saveProject,

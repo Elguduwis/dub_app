@@ -17,7 +17,8 @@ class DatabaseHelper {
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    // Increased version to 2 for the database upgrade
+    return await openDatabase(path, version: 2, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   Future _createDB(Database db, int version) async {
@@ -27,10 +28,19 @@ class DatabaseHelper {
       title TEXT NOT NULL,
       mediaPath TEXT NOT NULL,
       englishTranscript TEXT NOT NULL,
-      hausaTranslation TEXT NOT NULL,
+      translatedText TEXT NOT NULL,
+      targetLanguage TEXT NOT NULL,
       createdAt TEXT NOT NULL
     )
     ''');
+  }
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Safely upgrade existing users' databases without losing data
+      await db.execute('ALTER TABLE projects RENAME COLUMN hausaTranslation TO translatedText');
+      await db.execute('ALTER TABLE projects ADD COLUMN targetLanguage TEXT DEFAULT "Hausa"');
+    }
   }
 
   Future<int> create(Project project) async {

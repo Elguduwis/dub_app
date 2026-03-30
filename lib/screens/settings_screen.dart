@@ -11,6 +11,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _keyController = TextEditingController();
+  final TextEditingController _hfController = TextEditingController();
 
   @override
   void initState() {
@@ -18,6 +19,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = Provider.of<SettingsProvider>(context, listen: false);
     _urlController.text = provider.apiUrl;
     _keyController.text = provider.apiKey;
+    _hfController.text = provider.hfKey;
   }
 
   @override
@@ -73,6 +75,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       prefixIcon: Icon(Icons.vpn_key),
                     ),
                   ),
+                  SizedBox(height: 16),
+                  TextField(
+                    controller: _hfController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Hugging Face Token (hf_...)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: Icon(Icons.api),
+                    ),
+                  ),
                   SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -84,7 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () {
-                        settingsProvider.setSettings(_urlController.text, _keyController.text);
+                        settingsProvider.setSettings(_urlController.text, _keyController.text, _hfController.text);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Settings saved successfully!'), backgroundColor: Colors.green),
                         );
