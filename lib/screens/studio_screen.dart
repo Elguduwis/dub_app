@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
@@ -24,6 +26,14 @@ class _StudioScreenState extends State<StudioScreen> {
   String _translatedText = '';
   String? _error;
   
+  // Engine Selection
+  String _selectedEngine = 'Groq Whisper (Fast, Long Audio)';
+  final List<String> _engines = [
+    'Groq Whisper (Fast, Long Audio)', 
+    'VibeVoice (Multi-Speaker, Short Clips)'
+  ];
+
+  // Language Selection
   String _selectedLanguage = 'Hausa';
   final List<String> _supportedLanguages = [
     'Hausa', 'Yoruba', 'Igbo', 'Pidgin English', 'Swahili', 
@@ -51,8 +61,12 @@ class _StudioScreenState extends State<StudioScreen> {
     if (_selectedFile == null) return;
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     
-    if (settings.apiKey.isEmpty || settings.hfKey.isEmpty) {
-      setState(() => _error = 'Missing Groq or Hugging Face Key in Settings');
+    if (settings.apiKey.isEmpty) {
+      setState(() => _error = 'Missing Groq API Key in Settings');
+      return;
+    }
+    if (_selectedEngine.contains('VibeVoice') && settings.hfKey.isEmpty) {
+      setState(() => _error = 'Missing Hugging Face Key in Settings for VibeVoice');
       return;
     }
 
@@ -70,16 +84,45 @@ class _StudioScreenState extends State<StudioScreen> {
       final returnCode = await session.getReturnCode();
       if (!ReturnCode.isSuccess(returnCode)) throw Exception("Audio compression failed.");
 
-      setState(() => _statusText = '2/3: Transcribing with VibeVoice (This may take a moment to wake the AI)...');
-      
-      // NEW: VibeVoice multi-speaker transcription
-      final vibeVoiceScript = await VibeVoiceService.transcribe(outPath, settings.hfKey);
-      setState(() => _englishTranscript = vibeVoiceScript);
+      String transcribedText = '';
+
+      // --- DUAL ENGINE ROUTING ---
+      if (_selectedEngine.contains('Groq')) {
+        setState(() => _statusText = '2/3: Transcribing with Groq Whisper...');
+        var req = http.MultipartRequest('POST', Uri.parse(settings.apiUrl));
+        req.headers['Authorization'] = 'Bearer ${settings.apiKey}';
+        req.fields['model'] = 'whisper-large-v3';
+        req.fields['response_format'] = 'verbose_json';
+        req.files.add(await http.MultipartFile.fromPath('file', outPath));
+        
+        final res = await http.Response.fromStream(await req.send());
+        final data = json.decode(res.body);
+        if (res.statusCode != 200) throw Exception(data['error']?['message'] ?? 'Groq Transcription failed');
+        
+        StringBuffer transcriptBuffer = StringBuffer();
+        if (data['segments'] != null) {
+          for (var seg in data['segments']) {
+            double start = (seg['start'] as num).toDouble();
+            double end = (seg['end'] as num).toDouble();
+            String text = seg['text'].toString().trim();
+            transcriptBuffer.writeln('[${start.toStringAsFixed(1)}s - ${end.toStringAsFixed(1)}s] $text');
+          }
+        } else {
+          transcriptBuffer.write(data['text']);
+        }
+        transcribedText = transcriptBuffer.toString().trim();
+
+      } else {
+        setState(() => _statusText = '2/3: Transcribing with VibeVoice...');
+        transcribedText = await VibeVoiceService.transcribe(outPath, settings.hfKey);
+      }
+      // ---------------------------
+
+      setState(() => _englishTranscript = transcribedText);
 
       setState(() => _statusText = '3/3: Generating pure $_selectedLanguage localization...');
       
-      // Translate the structured script using Llama 3
-      final translated = await TranslationService.translateText(vibeVoiceScript, _selectedLanguage, settings.apiKey);
+      final translated = await TranslationService.translateText(transcribedText, _selectedLanguage, settings.apiKey);
       setState(() => _translatedText = translated);
 
       setState(() => _statusText = 'Complete!');
@@ -138,8 +181,36 @@ class _StudioScreenState extends State<StudioScreen> {
                       SizedBox(height: 8),
                       Text(_selectedFile!.path.split('/').last, style: TextStyle(color: Colors.grey), maxLines: 1),
                       SizedBox(height: 16),
+                      
+                      // ENGINE DROPDOWN
                       Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedEngine,
+                            isExpanded: true,
+                            icon: Icon(Icons.memory, color: Theme.of(context).colorScheme.primary),
+                            items: _engines.map((String engine) {
+                              return DropdownMenuItem<String>(
+                                value: engine,
+                                child: Text(engine, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              );
+                            }).toList(),
+                            onChanged: _isProcessing ? null : (String? newValue) {
+                              if (newValue != null) setState(() => _selectedEngine = newValue);
+                            },
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      
+                      // LANGUAGE DROPDOWN
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                         decoration: BoxDecoration(
                           border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
                           borderRadius: BorderRadius.circular(8),
@@ -152,7 +223,7 @@ class _StudioScreenState extends State<StudioScreen> {
                             items: _supportedLanguages.map((String lang) {
                               return DropdownMenuItem<String>(
                                 value: lang,
-                                child: Text('Translate to: $lang', style: TextStyle(fontWeight: FontWeight.bold)),
+                                child: Text('Translate to: $lang', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                               );
                             }).toList(),
                             onChanged: _isProcessing ? null : (String? newValue) {
@@ -161,6 +232,7 @@ class _StudioScreenState extends State<StudioScreen> {
                           ),
                         ),
                       ),
+                      
                       SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
@@ -186,7 +258,7 @@ class _StudioScreenState extends State<StudioScreen> {
             
             if (_englishTranscript.isNotEmpty) ...[
               SizedBox(height: 20),
-              _buildResultCard('VibeVoice Script (English)', _englishTranscript),
+              _buildResultCard('$_selectedEngine Script', _englishTranscript),
               SizedBox(height: 16),
               _buildResultCard('$_selectedLanguage Translation (Professional)', _translatedText),
               SizedBox(height: 20),
